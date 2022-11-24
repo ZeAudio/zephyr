@@ -46,11 +46,13 @@ struct st7789v_config {
 	uint8_t rgb_param[3];
 	uint16_t height;
 	uint16_t width;
+	uint8_t rotation;
 };
 
 struct st7789v_data {
 	uint16_t x_offset;
 	uint16_t y_offset;
+	uint8_t rotation;
 };
 
 #ifdef CONFIG_ST7789V_RGB565
@@ -257,11 +259,63 @@ static int st7789v_set_pixel_format(const struct device *dev,
 static int st7789v_set_orientation(const struct device *dev,
 			    const enum display_orientation orientation)
 {
-	if (orientation == DISPLAY_ORIENTATION_NORMAL) {
-		return 0;
+	const struct st7789v_config *config = dev->config;
+	struct st7789v_data *data = (struct st7789v_data *)dev->data;
+	uint8_t tx_data = 0;
+	uint16_t x_offset = 0;
+	uint16_t y_offset = 0;
+
+        uint16_t row_offset = 0;
+        uint16_t col_offset = 0;
+
+        if (config->width < 240) {
+          // 135x240 display
+          row_offset = data->y_offset;
+          col_offset = data->x_offset;
+        }
+        else {
+          // 240x320 and 240x240 displays
+          row_offset = (320 - config->height);
+          col_offset = (240 - config->width);
+        }
+
+	switch (orientation)
+	{
+	case DISPLAY_ORIENTATION_NORMAL:
+		tx_data |= ST7789V_MADCTL_MV_NORMAL_MODE;
+		x_offset = data->x_offset;
+		y_offset = data->y_offset;
+		break;
+
+	case DISPLAY_ORIENTATION_ROTATED_90:
+		tx_data |= (ST7789V_MADCTL_MY_BOTTOM_TO_TOP | ST7789V_MADCTL_MV_REVERSE_MODE);
+		x_offset = row_offset;
+		y_offset = col_offset;
+		break;
+
+	case DISPLAY_ORIENTATION_ROTATED_180:
+		tx_data |= (ST7789V_MADCTL_MY_BOTTOM_TO_TOP | ST7789V_MADCTL_MX_RIGHT_TO_LEFT);
+		x_offset = col_offset;
+		y_offset = row_offset;
+		break;
+
+	case DISPLAY_ORIENTATION_ROTATED_270:
+		tx_data |= (ST7789V_MADCTL_MX_RIGHT_TO_LEFT | ST7789V_MADCTL_MV_REVERSE_MODE);
+		x_offset = data->y_offset;
+		y_offset = data->x_offset;
+		break;
+
+	default:
+		LOG_ERR("Error changing display orientation");
+		return -ENOTSUP;
 	}
-	LOG_ERR("Changing display orientation not implemented");
-	return -ENOTSUP;
+
+	st7789v_set_lcd_margins(dev, x_offset, y_offset);
+	st7789v_transmit(dev, ST7789V_CMD_MADCTL, &tx_data, 1U);
+	data->rotation = orientation;
+	LOG_INF("Changing orientation to: '%d'", data->rotation);
+
+	return 0;
 }
 
 static void st7789v_lcd_init(const struct device *dev)
@@ -384,6 +438,8 @@ static int st7789v_init(const struct device *dev)
 
 	st7789v_exit_sleep(dev);
 
+	st7789v_set_orientation(dev, config->rotation);
+
 	return 0;
 }
 
@@ -450,6 +506,7 @@ static const struct display_driver_api st7789v_api = {
 		.rgb_param = DT_INST_PROP(inst, rgb_param),				\
 		.width = DT_INST_PROP(inst, width),					\
 		.height = DT_INST_PROP(inst, height),					\
+		.rotation = DT_INST_ENUM_IDX(inst, rotation),			\
 	};										\
 											\
 	static struct st7789v_data st7789v_data_ ## inst = {				\
