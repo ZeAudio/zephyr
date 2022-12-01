@@ -81,6 +81,9 @@ struct mcp23xxx_drv_data {
 		uint16_t gpio;
 		uint16_t olat;
 	} reg_cache;
+
+	uint16_t port_states;
+	int64_t last_update_tick;
 };
 
 extern const struct gpio_driver_api gpio_mcp23xxx_api_table;

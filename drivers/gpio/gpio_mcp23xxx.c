@@ -172,10 +172,10 @@ done:
 	return ret;
 }
 
+
 static int mcp23xxx_port_get_raw(const struct device *dev, uint32_t *value)
 {
 	struct mcp23xxx_drv_data *drv_data = dev->data;
-	uint16_t buf;
 	int ret;
 
 	if (k_is_in_isr()) {
@@ -184,9 +184,17 @@ static int mcp23xxx_port_get_raw(const struct device *dev, uint32_t *value)
 
 	k_sem_take(&drv_data->lock, K_FOREVER);
 
-	ret = read_port_regs(dev, REG_GPIO, &buf);
-	if (ret == 0) {
-		*value = buf;
+	int64_t now = k_uptime_ticks();
+
+	if (k_ticks_to_us_floor64(now - drv_data->last_update_tick) > 500) {
+		drv_data->last_update_tick = now;
+		ret = read_port_regs(dev, REG_GPIO, &drv_data->port_states);
+		if (ret == 0) {
+			*value = drv_data->port_states;
+		}
+	} else {
+		*value = drv_data->port_states;
+		ret = 0;
 	}
 
 	k_sem_give(&drv_data->lock);
